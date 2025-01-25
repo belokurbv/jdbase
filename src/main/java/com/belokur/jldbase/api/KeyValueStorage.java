@@ -7,6 +7,4 @@ public interface KeyValueStorage {
     void set(String key, String value);
 
     String get(String key);
-
-    Map<String, String> getAll();
 }
