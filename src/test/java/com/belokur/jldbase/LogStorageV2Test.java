@@ -14,11 +14,4 @@ class LogStorageV2Test extends AbstractKeyValueStorageTest {
     protected KeyValueStorage createStorage(Path filePath) {
         return new LogStorageV2(filePath.toString());
     }
-
-    @Test
-    void shouldReturnLatestValue_WhenKeyIsOverwritten2() {
-        storage.set("key", "oldValue");
-        storage.set("key", "newValue");
-        assertEquals("newValue", storage.get("key"));
-    }
 }

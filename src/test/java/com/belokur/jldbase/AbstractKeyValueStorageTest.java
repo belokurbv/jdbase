@@ -10,22 +10,20 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.*;
 
 abstract class AbstractKeyValueStorageTest {
     @TempDir
     Path tempDir;
     KeyValueStorage storage;
-    private Path testFile;
 
     protected abstract KeyValueStorage createStorage(Path filePath);
 
     @BeforeEach
-    void setUp() throws IOException {
-        testFile = tempDir.resolve("test_storage.dat");
-        Files.createFile(testFile);
-        storage = createStorage(testFile);
+    void setUp() {
+        System.out.println("Temp dir: " + tempDir);
+        assertTrue(Files.isDirectory(tempDir));
+        storage = createStorage(tempDir);
     }
 
     @Test

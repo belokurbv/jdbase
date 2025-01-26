@@ -1,27 +1,23 @@
 package com.belokur.jldbase.v1;
 
-import com.belokur.jldbase.api.KeyValueExtractor;
 import com.belokur.jldbase.api.KeyValueStorage;
 import com.belokur.jldbase.exception.KeyException;
 import com.belokur.jldbase.impl.extractors.BinaryValueExtractor;
-import com.belokur.jldbase.impl.extractors.CSVValueExtractor;
 
-import java.io.*;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
-import java.nio.file.Path;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-public class LogStorageV2 implements KeyValueStorage {
-    private final Path path;
+public class LogStorageV2 extends SingleFileStorage implements KeyValueStorage {
+    public static final String DEFAULT_FILE_NAME = "db_v2.dat";
 
     private final Map<String, Long> memoryMap = new ConcurrentHashMap<>();
 
-    private final KeyValueExtractor extractor;
-
     public LogStorageV2(String path) {
-        this.path = Path.of(path);
-        this.extractor = new BinaryValueExtractor();
+        super(path, DEFAULT_FILE_NAME, new BinaryValueExtractor());
     }
 
     @Override
