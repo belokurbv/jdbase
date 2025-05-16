@@ -2,22 +2,46 @@ package com.belokur.jldbase.v1;
 
 import com.belokur.jldbase.api.KeyValueStorage;
 import com.belokur.jldbase.exception.KeyException;
-import com.belokur.jldbase.impl.extractors.BinaryValueExtractor;
+import com.belokur.jldbase.impl.extractors.BinaryPlainValueExtractor;
 
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class LogStorageV2 extends SingleFileStorage implements KeyValueStorage {
     public static final String DEFAULT_FILE_NAME = "db_v2.dat";
 
-    private final Map<String, Long> memoryMap = new ConcurrentHashMap<>();
+    private Map<String, Long> memoryMap;
 
     public LogStorageV2(String path) {
-        super(path, DEFAULT_FILE_NAME, new BinaryValueExtractor());
+        super(path, DEFAULT_FILE_NAME, new BinaryPlainValueExtractor());
+    }
+
+    public void init() {
+        this.memoryMap = new ConcurrentHashMap<>();
+        try (var file = new FileInputStream(path.toFile());
+             var channel = file.getChannel()) {
+            while (channel.position() < channel.size()) {
+                var recordStart = channel.position();
+                var lenBuf = ByteBuffer.allocate(BinaryPlainValueExtractor.CAPACITY);
+                channel.read(lenBuf);
+                lenBuf.flip();
+                var recordLen = lenBuf.getInt();
+                var recordBuf = ByteBuffer.allocate(recordLen);
+                channel.read(recordBuf);
+                recordBuf.flip();
+                var line = new String(recordBuf.array(), StandardCharsets.UTF_8);
+                var pair = extractor.fromRecord(line);
+                memoryMap.put(pair.key(), recordStart);
+            }
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     @Override
@@ -43,10 +67,10 @@ public class LogStorageV2 extends SingleFileStorage implements KeyValueStorage {
 
         var position = memoryMap.get(key);
 
-        try (RandomAccessFile raf = new RandomAccessFile(path.toFile(), "r")) {
+        try (var raf = new RandomAccessFile(path.toFile(), "r")) {
             raf.seek(position);
-            int length = raf.readInt();
-            byte[] data = new byte[length];
+            var length = raf.readInt();
+            var data = new byte[length];
             raf.readFully(data);
             var content = new String(data);
             return extractor.fromRecord(content).value();

@@ -6,7 +6,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
@@ -21,7 +20,6 @@ abstract class AbstractKeyValueStorageTest {
 
     @BeforeEach
     void setUp() {
-        System.out.println("Temp dir: " + tempDir);
         assertTrue(Files.isDirectory(tempDir));
         storage = createStorage(tempDir);
     }
@@ -42,6 +40,20 @@ abstract class AbstractKeyValueStorageTest {
     @Test
     void shouldThrowException_WhenKeyDoesNotExist() {
         assertThrows(KeyException.class, () -> storage.get("missingKey"));
+    }
+
+    @Test
+    void shouldThrowException_WhenKeyDoesNotExistInStorage() {
+        assertThrows(KeyException.class, () -> storage.get("foo"));
+    }
+
+    @Test
+    void shouldLoadValues_WhenDatabaseFileExists() {
+        storage.set("foo", "bar");
+        storage.set("key", "oldValue");
+        var secondaryStorage = createStorage(tempDir);
+        assertEquals("bar", secondaryStorage.get("foo"));
+        assertEquals("oldValue", secondaryStorage.get("key"));
     }
 }
 

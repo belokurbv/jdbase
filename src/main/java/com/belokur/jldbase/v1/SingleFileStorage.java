@@ -15,16 +15,20 @@ public abstract class SingleFileStorage implements KeyValueStorage {
     public SingleFileStorage(String path, String name, KeyValueExtractor extractor) {
         this.extractor = extractor;
         var entryPath = Path.of(path);
-        if(Files.isDirectory(entryPath)) {
+        if (Files.isDirectory(entryPath)) {
             var dbFile = entryPath.resolve(name);
-            try {
-                this.path = Files.createFile(dbFile);
-            } catch (IOException e) {
-                throw new RuntimeException(e);
+            if (!Files.exists(dbFile)) {
+                try {
+                    this.path = Files.createFile(dbFile);
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
+                }
+            } else {
+                this.path = dbFile;
             }
         } else {
             throw new RuntimeException("Path " + path + " is not a directory");
         }
-
+        init();
     }
 }
