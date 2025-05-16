@@ -1,10 +1,10 @@
-package com.belokur.jldbase.v1;
+package com.belokur.jldbase.storage;
 
 import com.belokur.jldbase.api.KeyValueStorage;
 import com.belokur.jldbase.exception.KeyException;
-import com.belokur.jldbase.impl.extractors.BinaryValueExtractor;
+import com.belokur.jldbase.impl.codec.KeyValueBinaryCodec;
 import com.belokur.jldbase.impl.reader.DataReaderV1;
-import com.belokur.jldbase.impl.reader.DataWriterV1;
+import com.belokur.jldbase.impl.writer.DataWriterV1;
 
 import java.io.IOException;
 import java.util.Map;
@@ -16,7 +16,7 @@ public class LogStorageV3 extends SingleFileStorage implements KeyValueStorage {
     private Map<String, Long> memoryMap;
 
     public LogStorageV3(String path) {
-        super(path, DEFAULT_FILE_NAME, new BinaryValueExtractor());
+        super(path, DEFAULT_FILE_NAME, new KeyValueBinaryCodec());
     }
 
     public void init() {
@@ -35,7 +35,7 @@ public class LogStorageV3 extends SingleFileStorage implements KeyValueStorage {
 
     @Override
     public void set(String key, String value) {
-        var content = extractor.toRecord(key, value);
+        var content = codec.toRecord(key, value);
 
         try (var writer = new DataWriterV1(this.path)) {
             memoryMap.put(key, writer.size());

@@ -1,26 +1,12 @@
-package com.belokur.jldbase.impl.extractors;
+package com.belokur.jldbase.impl.codec;
 
-import com.belokur.jldbase.api.KeyValueExtractor;
-import com.belokur.jldbase.api.Pair;
+import com.belokur.jldbase.api.KeyValueCodec;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 
-public class BinaryValueExtractor extends CSVValueExtractor implements KeyValueExtractor {
+public class KeyValueBinaryCodec implements KeyValueCodec {
     public static int CAPACITY = 4;
-
-    public BinaryValueExtractor() {
-    }
-
-    @Override
-    public Pair fromRecord(String row) {
-        return super.fromRecord(row);
-    }
-
-    @Override
-    public boolean containsKey(String key, String content) {
-        return super.containsKey(key, content);
-    }
 
     @Override
     public byte[] toRecord(String key, String value) {

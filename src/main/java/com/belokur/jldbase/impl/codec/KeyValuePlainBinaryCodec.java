@@ -1,10 +1,10 @@
-package com.belokur.jldbase.impl.extractors;
+package com.belokur.jldbase.impl.codec;
 
-import com.belokur.jldbase.api.KeyValueExtractor;
+import com.belokur.jldbase.api.KeyValueCodec;
 
 import java.nio.ByteBuffer;
 
-public class BinaryPlainValueExtractor extends CSVValueExtractor implements KeyValueExtractor {
+public class KeyValuePlainBinaryCodec implements KeyValueCodec {
     public static int CAPACITY = 4;
 
     @Override

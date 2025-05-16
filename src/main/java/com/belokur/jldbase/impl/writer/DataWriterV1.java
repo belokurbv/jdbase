@@ -1,4 +1,4 @@
-package com.belokur.jldbase.impl.reader;
+package com.belokur.jldbase.impl.writer;
 
 import com.belokur.jldbase.api.DataWriter;
 

@@ -1,8 +1,7 @@
 package com.belokur.jldbase;
 
 import com.belokur.jldbase.api.KeyValueStorage;
-import com.belokur.jldbase.v1.LogStorageV2;
-import com.belokur.jldbase.v1.LogStorageV3;
+import com.belokur.jldbase.storage.LogStorageV3;
 
 import java.nio.file.Path;
 

@@ -1,9 +1,9 @@
-package com.belokur.jldbase.v1;
+package com.belokur.jldbase.storage;
 
 import com.belokur.jldbase.api.KeyValueStorage;
 import com.belokur.jldbase.api.Pair;
 import com.belokur.jldbase.exception.KeyException;
-import com.belokur.jldbase.impl.extractors.CSVValueExtractor;
+import com.belokur.jldbase.impl.extractors.CSVValueCodec;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -13,12 +13,17 @@ public class LogStorageV1 extends SingleFileStorage implements KeyValueStorage {
     public static final String DEFAULT_FILE_NAME = "db_v1.dat";
 
     public LogStorageV1(String path) {
-        super(path, DEFAULT_FILE_NAME, new CSVValueExtractor());
+        super(path, DEFAULT_FILE_NAME, new CSVValueCodec());
+    }
+
+    public static Pair fromRecord(String row) {
+        var array = row.split(",");
+        return new Pair(array[0], array[1]);
     }
 
     @Override
     public void set(String key, String value) {
-        var content = extractor.toRecord(key, value);
+        var content = codec.toRecord(key, value);
         try {
             Files.write(path, content, StandardOpenOption.APPEND);
         } catch (IOException e) {
@@ -30,13 +35,17 @@ public class LogStorageV1 extends SingleFileStorage implements KeyValueStorage {
     public String get(String key) {
         try (var lines = Files.lines(path)) {
             return lines
-                    .filter(line -> extractor.containsKey(key, line))
+                    .filter(line -> containsKey(key, line))
                     .reduce((first, second) -> second)
-                    .map(extractor::fromRecord)
+                    .map(LogStorageV1::fromRecord)
                     .map(Pair::value)
                     .orElseThrow(() -> new KeyException(key));
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
+    }
+
+    public boolean containsKey(String key, String content) {
+        return content.split(",")[0].equals(key);
     }
 }

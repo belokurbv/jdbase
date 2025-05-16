@@ -1,8 +1,10 @@
-package com.belokur.jldbase.v1;
+package com.belokur.jldbase.storage;
 
 import com.belokur.jldbase.api.KeyValueStorage;
+import com.belokur.jldbase.api.Pair;
 import com.belokur.jldbase.exception.KeyException;
-import com.belokur.jldbase.impl.extractors.BinaryPlainValueExtractor;
+import com.belokur.jldbase.impl.codec.KeyValueBinaryCodec;
+import com.belokur.jldbase.impl.codec.KeyValuePlainBinaryCodec;
 
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -19,7 +21,12 @@ public class LogStorageV2 extends SingleFileStorage implements KeyValueStorage {
     private Map<String, Long> memoryMap;
 
     public LogStorageV2(String path) {
-        super(path, DEFAULT_FILE_NAME, new BinaryPlainValueExtractor());
+        super(path, DEFAULT_FILE_NAME, new KeyValuePlainBinaryCodec());
+    }
+
+    public static Pair fromRecord(String row) {
+        var array = row.split(",");
+        return new Pair(array[0], array[1]);
     }
 
     public void init() {
@@ -28,7 +35,7 @@ public class LogStorageV2 extends SingleFileStorage implements KeyValueStorage {
              var channel = file.getChannel()) {
             while (channel.position() < channel.size()) {
                 var recordStart = channel.position();
-                var lenBuf = ByteBuffer.allocate(BinaryPlainValueExtractor.CAPACITY);
+                var lenBuf = ByteBuffer.allocate(KeyValueBinaryCodec.CAPACITY);
                 channel.read(lenBuf);
                 lenBuf.flip();
                 var recordLen = lenBuf.getInt();
@@ -36,7 +43,7 @@ public class LogStorageV2 extends SingleFileStorage implements KeyValueStorage {
                 channel.read(recordBuf);
                 recordBuf.flip();
                 var line = new String(recordBuf.array(), StandardCharsets.UTF_8);
-                var pair = extractor.fromRecord(line);
+                var pair = fromRecord(line);
                 memoryMap.put(pair.key(), recordStart);
             }
         } catch (IOException e) {
@@ -46,7 +53,7 @@ public class LogStorageV2 extends SingleFileStorage implements KeyValueStorage {
 
     @Override
     public void set(String key, String value) {
-        var content = extractor.toRecord(key, value);
+        var content = codec.toRecord(key, value);
 
         try (var file = new FileOutputStream(path.toFile(), true);
              var channel = file.getChannel()) {
@@ -73,7 +80,7 @@ public class LogStorageV2 extends SingleFileStorage implements KeyValueStorage {
             var data = new byte[length];
             raf.readFully(data);
             var content = new String(data);
-            return extractor.fromRecord(content).value();
+            return fromRecord(content).value();
         } catch (IOException e) {
             throw new RuntimeException(e);
         }

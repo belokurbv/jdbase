@@ -1,7 +1,7 @@
-package com.belokur.jldbase.v1;
+package com.belokur.jldbase.storage;
 
-import com.belokur.jldbase.api.KeyValueExtractor;
 import com.belokur.jldbase.api.KeyValueStorage;
+import com.belokur.jldbase.api.KeyValueCodec;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -10,10 +10,10 @@ import java.nio.file.Path;
 public abstract class SingleFileStorage implements KeyValueStorage {
     protected Path path;
 
-    protected KeyValueExtractor extractor;
+    protected KeyValueCodec codec;
 
-    public SingleFileStorage(String path, String name, KeyValueExtractor extractor) {
-        this.extractor = extractor;
+    public SingleFileStorage(String path, String name, KeyValueCodec codec) {
+        this.codec = codec;
         var entryPath = Path.of(path);
         if (Files.isDirectory(entryPath)) {
             var dbFile = entryPath.resolve(name);
