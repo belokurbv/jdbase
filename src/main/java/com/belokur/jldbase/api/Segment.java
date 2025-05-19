@@ -8,11 +8,20 @@ public final class Segment {
     private final int id;
     private final Path path;
     private final BitSet keys;
+    private boolean dirty;
 
-    public Segment(int id, Path path,) {
+    public Segment(int id, Path path) {
         this.id = id;
         this.path = path;
         this.keys = new BitSet();
+        this.dirty = false;
+    }
+
+    public Segment(int id, Path path, BitSet keys) {
+        this.id = id;
+        this.path = path;
+        this.keys = keys;
+        this.dirty = false;
     }
 
     @Override
@@ -56,5 +65,13 @@ public final class Segment {
 
     public BitSet getKeys() {
         return keys;
+    }
+
+    public void dirty() {
+        this.dirty = true;
+    }
+
+    public boolean isDirty() {
+        return dirty;
     }
 }

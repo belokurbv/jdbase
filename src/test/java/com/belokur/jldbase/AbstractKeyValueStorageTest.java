@@ -16,7 +16,7 @@ abstract class AbstractKeyValueStorageTest {
     Path tempDir;
     KeyValueStorage storage;
 
-    protected abstract KeyValueStorage createStorage(Path filePath);
+    protected abstract KeyValueStorage createStorage(Path path);
 
     @BeforeEach
     void setUp() {
