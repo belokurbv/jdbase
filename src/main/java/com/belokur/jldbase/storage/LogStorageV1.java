@@ -3,7 +3,7 @@ package com.belokur.jldbase.storage;
 import com.belokur.jldbase.api.KeyValueStorage;
 import com.belokur.jldbase.api.Pair;
 import com.belokur.jldbase.exception.KeyException;
-import com.belokur.jldbase.impl.extractors.CSVValueCodec;
+import com.belokur.jldbase.impl.codec.CSVCodec;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -13,7 +13,7 @@ public class LogStorageV1 extends SingleFileStorage implements KeyValueStorage {
     public static final String DEFAULT_FILE_NAME = "db_v1.dat";
 
     public LogStorageV1(String path) {
-        super(path, DEFAULT_FILE_NAME, new CSVValueCodec());
+        super(path, DEFAULT_FILE_NAME, new CSVCodec());
     }
 
     public static Pair fromRecord(String row) {

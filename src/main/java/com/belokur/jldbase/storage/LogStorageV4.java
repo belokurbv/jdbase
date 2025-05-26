@@ -2,6 +2,7 @@ package com.belokur.jldbase.storage;
 
 import com.belokur.jldbase.api.KeyValueStorage;
 import com.belokur.jldbase.api.Segment;
+import com.belokur.jldbase.api.SegmentManager;
 import com.belokur.jldbase.api.SegmentPosition;
 import com.belokur.jldbase.exception.KeyException;
 import com.belokur.jldbase.impl.codec.KeyValueBinaryCodec;
@@ -19,9 +20,6 @@ import java.util.concurrent.Executors;
 public class LogStorageV4 extends SegmentsStorage implements KeyValueStorage {
     private static final int DEFAULT_SEGMENT_SIZE = 1024;
 
-    private Map<String, SegmentPosition> frozenMap = new ConcurrentHashMap<>();
-    private Map<String, SegmentPosition> memoryMap = new ConcurrentHashMap<>();
-
     private final ExecutorService mergeExecutor = Executors.newSingleThreadExecutor();
 
     public LogStorageV4(String path) {
@@ -34,8 +32,13 @@ public class LogStorageV4 extends SegmentsStorage implements KeyValueStorage {
         Runtime.getRuntime().addShutdownHook(new Thread(mergeExecutor::shutdown));
     }
 
+    public LogStorageV4(String path, int segmentSize, SegmentManager segmentManager) {
+        super(path, new KeyValueBinaryCodec(), segmentManager);
+        this.maxSegmentSize = segmentSize;
+        Runtime.getRuntime().addShutdownHook(new Thread(mergeExecutor::shutdown));
+    }
+
     public void init() {
-        this.memoryMap = new ConcurrentHashMap<>();
         for (Segment segment : this.segmentManager.getAllSegments()) {
             loadKeysIntoMemory(segment);
         }
@@ -47,6 +50,9 @@ public class LogStorageV4 extends SegmentsStorage implements KeyValueStorage {
                 var recordStart = reader.position();
                 var key = reader.readValue(reader.readSize());
                 memoryMap.put(key, new SegmentPosition(segment, (int) recordStart));
+                segment.addKey((int) recordStart);
+                var valueSize = reader.readSize();
+                reader.readValue(valueSize);
             }
         } catch (Exception e) {
             throw new RuntimeException("Failed to load keys from segment: " + segment.getPath(), e);
@@ -67,8 +73,10 @@ public class LogStorageV4 extends SegmentsStorage implements KeyValueStorage {
         try (var reader = new DataReaderV1(segment.getPath());
              var writer = new DataWriterV1(tempSegment.getPath())) {
 
-            for (int keyIndex = segment.getKeys().nextSetBit(0); keyIndex >= 0; keyIndex = segment.getKeys().nextSetBit(
-                    keyIndex + 1)) {
+            for (int keyIndex = segment.getKeys().nextSetBit(0);
+                 keyIndex >= 0;
+                 keyIndex = segment.getKeys().nextSetBit(keyIndex + 1)
+            ) {
                 var key = reader.readValue(reader.readSize());
                 var value = reader.readValue(reader.readSize());
 
@@ -147,8 +155,8 @@ public class LogStorageV4 extends SegmentsStorage implements KeyValueStorage {
                 segment.clearKey((int) previousSegmentPosition.position());
                 segment.dirty();
             }
-            var newPosition = writer.size();
-            memoryMap.put(key, new SegmentPosition(segment, (int) newPosition));
+            memoryMap.put(key, new SegmentPosition(segment, (int) currentSize));
+            segment.addKey((int) currentSize);
         }
     }
 
