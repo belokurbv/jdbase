@@ -8,6 +8,8 @@ import com.belokur.jldbase.exception.KeyException;
 import com.belokur.jldbase.impl.codec.KeyValueBinaryCodec;
 import com.belokur.jldbase.impl.reader.DataReaderV1;
 import com.belokur.jldbase.impl.writer.DataWriterV1;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -18,6 +20,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class LogStorageV4 extends SegmentsStorage implements KeyValueStorage {
+    private static final Logger log = LoggerFactory.getLogger(LogStorageV4.class);
     private static final int DEFAULT_SEGMENT_SIZE = 1024;
 
     private final ExecutorService mergeExecutor = Executors.newSingleThreadExecutor();
@@ -39,8 +42,13 @@ public class LogStorageV4 extends SegmentsStorage implements KeyValueStorage {
     }
 
     public void init() {
-        for (Segment segment : this.segmentManager.getAllSegments()) {
-            loadKeysIntoMemory(segment);
+        rwLock.writeLock().lock();
+        try {
+            for (Segment segment : this.segmentManager.getAllSegments()) {
+                loadKeysIntoMemory(segment);
+            }
+        } finally {
+            rwLock.writeLock().unlock();
         }
     }
 
@@ -64,12 +72,20 @@ public class LogStorageV4 extends SegmentsStorage implements KeyValueStorage {
             return;
         }
 
-        this.frozenMap = memoryMap;
-        this.memoryMap = new ConcurrentHashMap<>();
+        log.info("Starting merge");
+
+        rwLock.writeLock().lock();
+        try {
+            this.frozenMap = new ConcurrentHashMap<>(this.memoryMap);
+            this.memoryMap = new ConcurrentHashMap<>();
+        } finally {
+            rwLock.writeLock().unlock();
+        }
+
         var newMap = new HashMap<String, SegmentPosition>();
 
         var tempSegment = this.segmentManager.createTemporarySegment();
-
+        log.info("Creating temporary segment: {}", tempSegment.getId());
         try (var reader = new DataReaderV1(segment.getPath());
              var writer = new DataWriterV1(tempSegment.getPath())) {
 
@@ -80,20 +96,33 @@ public class LogStorageV4 extends SegmentsStorage implements KeyValueStorage {
                 var key = reader.readValue(reader.readSize());
                 var value = reader.readValue(reader.readSize());
 
+                log.info("Processing key {} in segment {} on position {}", key, segment.getId(), keyIndex);
+
                 if (isKeyStillInSegment(segment, key)) {
                     var record = codec.toRecord(key, value);
                     var position = writer.size();
                     writer.append(record);
                     newMap.put(key, new SegmentPosition(tempSegment, (int) position));
+                    tempSegment.addKey((int) position);
                 }
             }
+        } catch (IOException e) {
+            log.error("Failed to merge segment: {}", segment.getPath(), e);
+            throw new RuntimeException("Failed to merge segment: " + segment.getPath(), e);
+            }
 
+        rwLock.writeLock().lock();
+        try {
             retainOldKeys(newMap);
             memoryMap.putAll(newMap);
-            segmentManager.persist(tempSegment);
-        } catch (IOException e) {
-            throw new RuntimeException("Failed to merge segment: " + segment.getPath(), e);
+            if (!newMap.isEmpty()) {
+                segmentManager.persist(tempSegment);
+                segmentManager.deleteSegment(segment);
+            } else {
+                log.info("No keys were merged, deleting segment {}", segment.getId());
+            }
         } finally {
+            rwLock.writeLock().unlock();
             cleanupAfterMerge(tempSegment);
         }
     }
@@ -146,6 +175,7 @@ public class LogStorageV4 extends SegmentsStorage implements KeyValueStorage {
     }
 
     private void set(Segment segment, String key, byte[] content) throws IOException {
+        rwLock.writeLock().lock();
         try (var writer = new DataWriterV1(segment.getPath())) {
             var currentSize = writer.size();
             writer.setPosition(currentSize);
@@ -155,36 +185,50 @@ public class LogStorageV4 extends SegmentsStorage implements KeyValueStorage {
                 segment.clearKey((int) previousSegmentPosition.position());
                 segment.dirty();
             }
+
             memoryMap.put(key, new SegmentPosition(segment, (int) currentSize));
             segment.addKey((int) currentSize);
+        } finally {
+            rwLock.writeLock().unlock();
         }
     }
 
     @Override
     public String get(String key) {
-        var position = getSegmentPosition(key);
+        rwLock.readLock().lock();
+        try {
+            var position = getSegmentPosition(key);
 
-        try (var reader = new DataReaderV1(position.segment().getPath())) {
-            reader.setPosition(position.position());
-            validateKeyInStorage(key, reader);
+            try (var reader = new DataReaderV1(position.segment().getPath())) {
+                reader.setPosition(position.position());
+                validateKeyInStorage(key, reader);
 
-            int valueSize = reader.readSize();
-            return reader.readValue(valueSize);
-        } catch (IOException e) {
-            throw new RuntimeException("Failed to read value for key: " + key, e);
+                int valueSize = reader.readSize();
+                return reader.readValue(valueSize);
+            } catch (IOException e) {
+                throw new RuntimeException("Failed to read value for key: " + key, e);
+            }
+        } finally {
+            rwLock.readLock().unlock();
         }
+
     }
 
     private SegmentPosition getSegmentPosition(String key) {
-        SegmentPosition position = memoryMap.get(key);
-        if (position == null) {
-            position = frozenMap.get(key);
-        }
+        rwLock.readLock().lock();
+        try {
+            var position = memoryMap.get(key);
+            if (position == null) {
+                position = frozenMap.get(key);
+            }
 
-        if (position == null) {
-            throw new KeyException(key);
+            if (position == null) {
+                throw new KeyException(key);
+            }
+            return position;
+        } finally {
+            rwLock.readLock().unlock();
         }
-        return position;
     }
 
     private void validateKeyInStorage(String key, DataReaderV1 reader) throws IOException {

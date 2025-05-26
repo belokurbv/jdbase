@@ -3,14 +3,10 @@ package com.belokur.jldbase;
 import com.belokur.jldbase.api.KeyValueStorage;
 import com.belokur.jldbase.api.Segment;
 import com.belokur.jldbase.api.SegmentManager;
-import com.belokur.jldbase.segment.SegmentManagerImpl;
-import com.belokur.jldbase.storage.LogStorageV4;
-import com.belokur.jldbase.storage.SegmentsStorage;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -47,6 +43,26 @@ public abstract class AbstractSegmentsStorageTest extends AbstractKeyValueStorag
         var secondPositionInSegment = current.getKeys().nextSetBit(firstPositionInSegment + 1);
         assertEquals(0, firstPositionInSegment);
         assertEquals(21, secondPositionInSegment);
+    }
+
+
+
+    @Test
+    void shouldMergeSegment_WhenKeysAreDuplicated() throws InterruptedException {
+        // Initialize duplicate data
+        storage.set("foo", "1234567890"); // Duplicate entry 1
+        storage.set("foo", "1234567891"); // Duplicate entry 2
+        storage.set("foo", "1234567892"); // Duplicate entry 3
+        TimeUnit.SECONDS.sleep(5); // This ensures the merge thread finishes execution
+
+        // Check that only one segment remains (i.e., merge happened)
+        assertEquals(2, segmentManager.getAllSegments().size(),
+                     "Post-merge, only one segment should remain");
+
+        // Validate that the latest value of "foo" is retained
+        assertEquals("1234567892", storage.get("foo"),
+                     "The latest value should be retained after the merge");
+
     }
 
 
