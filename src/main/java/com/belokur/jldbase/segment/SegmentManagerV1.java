@@ -2,7 +2,6 @@ package com.belokur.jldbase.segment;
 
 import com.belokur.jldbase.api.Segment;
 import com.belokur.jldbase.api.SegmentManager;
-import com.belokur.jldbase.storage.LogStorageV4;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -10,25 +9,26 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class SegmentManagerV1 implements SegmentManager {
-    private static final Logger log = LoggerFactory.getLogger(LogStorageV4.class);
     public static final String EXTENSION = ".dat";
     public static final String TEMPORARY_SEGMENT_EXTENSION = ".tmp";
     public static final String PREFIX = "segment";
     public static final String SEGMENT_TEMPLATE = "%s-%08d%s";
-    private int maxSegmentId;
+    private static final Logger log = LoggerFactory.getLogger(SegmentManagerV1.class);
+    private final AtomicInteger maxSegmentId;
     private final List<Segment> segments;
-    private Segment current;
     private final Path root;
+    private volatile Segment current;
 
     public SegmentManagerV1(Path root) {
         this.root = root;
-        this.segments = new ArrayList<>();
-        this.maxSegmentId = 0;
+        this.segments = new CopyOnWriteArrayList<>();
+        this.maxSegmentId = new AtomicInteger();
         initSegments(root);
         this.current = addSegment();
     }
@@ -54,12 +54,13 @@ public class SegmentManagerV1 implements SegmentManager {
                     .map(file -> new Segment(getSegmentId(file), file))
                     .toList();
             this.segments.addAll(fileSegments);
-            this.maxSegmentId = segments
+            var currMax = segments
                     .stream()
                     .map(Segment::getId)
                     .mapToInt(Integer::intValue)
                     .max()
                     .orElse(0);
+            maxSegmentId.set(currMax);
         } catch (IOException e) {
             throw new RuntimeException("Can't get segments from folder" + e);
         }
@@ -67,8 +68,8 @@ public class SegmentManagerV1 implements SegmentManager {
 
     @Override
     public Segment addSegment() {
-        maxSegmentId++;
-        var segment = createEmptySegment(maxSegmentId, EXTENSION);
+        var id = maxSegmentId.incrementAndGet();
+        var segment = createEmptySegment(id, EXTENSION);
         segments.add(segment);
         return segment;
     }
@@ -86,8 +87,8 @@ public class SegmentManagerV1 implements SegmentManager {
 
     @Override
     public Segment createTemporarySegment() {
-        maxSegmentId++;
-        return createEmptySegment(maxSegmentId, TEMPORARY_SEGMENT_EXTENSION);
+        var id = maxSegmentId.incrementAndGet();
+        return createEmptySegment(id, TEMPORARY_SEGMENT_EXTENSION);
     }
 
     @Override
@@ -101,12 +102,12 @@ public class SegmentManagerV1 implements SegmentManager {
 
     @Override
     public void persist(Segment tempSegment) {
-        this.maxSegmentId++;
-        var newSegmentName = String.format(SEGMENT_TEMPLATE, PREFIX, this.maxSegmentId, EXTENSION);
+        var id = maxSegmentId.incrementAndGet();
+        var newSegmentName = String.format(SEGMENT_TEMPLATE, PREFIX, id, EXTENSION);
         var newSegmentPath = root.resolve(newSegmentName);
         try {
             Files.move(tempSegment.getPath(), newSegmentPath, StandardCopyOption.ATOMIC_MOVE);
-            var segment = new Segment(this.maxSegmentId, newSegmentPath, tempSegment.getKeys());
+            var segment = new Segment(id, newSegmentPath, tempSegment.getKeys());
             segments.add(segment);
         } catch (IOException e) {
             log.error("Failed to persist segment", e);
@@ -127,7 +128,7 @@ public class SegmentManagerV1 implements SegmentManager {
 
     @Override
     public List<Segment> getAllSegments() {
-        return segments;
+        return List.copyOf(segments);
     }
 
     @Override

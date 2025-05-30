@@ -6,10 +6,10 @@ import com.belokur.jldbase.storage.LogStorageV4;
 
 import java.nio.file.Path;
 
-public class LogStorageV4Test extends AbstractSegmentsStorageTest {
+public class LogStorageV5Test extends AbstractSegmentsStorageTest {
     @Override
     protected KeyValueStorage createStorage(Path path) {
         this.segmentManager = new SegmentManagerV1(path);
-        return new LogStorageV4(50, segmentManager);
+        return new LogStorageV4( 50, segmentManager);
     }
 }

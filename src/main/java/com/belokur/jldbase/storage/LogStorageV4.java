@@ -8,11 +8,13 @@ import com.belokur.jldbase.exception.KeyException;
 import com.belokur.jldbase.impl.codec.KeyValueBinaryCodec;
 import com.belokur.jldbase.impl.reader.DataReaderV1;
 import com.belokur.jldbase.impl.writer.DataWriterV1;
+import com.belokur.jldbase.segment.SegmentManagerV1;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -22,27 +24,28 @@ import java.util.concurrent.Executors;
 public class LogStorageV4 extends SegmentsStorage implements KeyValueStorage {
     private static final Logger log = LoggerFactory.getLogger(LogStorageV4.class);
     private static final int DEFAULT_SEGMENT_SIZE = 1024;
-
     private final ExecutorService mergeExecutor = Executors.newSingleThreadExecutor();
+    Map<String, SegmentPosition> frozenMap;
+    Map<String, SegmentPosition> memoryMap;
 
     public LogStorageV4(String path) {
         this(path, DEFAULT_SEGMENT_SIZE);
     }
 
     public LogStorageV4(String path, int segmentSize) {
-        super(path, new KeyValueBinaryCodec());
-        this.maxSegmentSize = segmentSize;
-        Runtime.getRuntime().addShutdownHook(new Thread(mergeExecutor::shutdown));
+        this(segmentSize, new SegmentManagerV1(Path.of(path)));
     }
 
-    public LogStorageV4(String path, int segmentSize, SegmentManager segmentManager) {
-        super(path, new KeyValueBinaryCodec(), segmentManager);
+    public LogStorageV4(int segmentSize, SegmentManager segmentManager) {
+        super(new KeyValueBinaryCodec(), segmentManager);
         this.maxSegmentSize = segmentSize;
         Runtime.getRuntime().addShutdownHook(new Thread(mergeExecutor::shutdown));
     }
 
     public void init() {
         rwLock.writeLock().lock();
+        this.frozenMap = new ConcurrentHashMap<>();
+        this.memoryMap = new ConcurrentHashMap<>();
         try {
             for (Segment segment : this.segmentManager.getAllSegments()) {
                 loadKeysIntoMemory(segment);
@@ -109,7 +112,7 @@ public class LogStorageV4 extends SegmentsStorage implements KeyValueStorage {
         } catch (IOException e) {
             log.error("Failed to merge segment: {}", segment.getPath(), e);
             throw new RuntimeException("Failed to merge segment: " + segment.getPath(), e);
-            }
+        }
 
         rwLock.writeLock().lock();
         try {
@@ -181,8 +184,9 @@ public class LogStorageV4 extends SegmentsStorage implements KeyValueStorage {
             writer.setPosition(currentSize);
             writer.append(content);
             var previousSegmentPosition = memoryMap.get(key);
+
             if (previousSegmentPosition != null) {
-                segment.clearKey((int) previousSegmentPosition.position());
+                segment.clearKey(previousSegmentPosition.position());
                 segment.dirty();
             }
 

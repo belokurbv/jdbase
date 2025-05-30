@@ -13,22 +13,17 @@ public abstract class SegmentsStorage implements KeyValueStorage {
     protected KeyValueCodec codec;
     protected SegmentManager segmentManager;
     int maxSegmentSize = 100;
-    Map<String, SegmentPosition> frozenMap;
-    Map<String, SegmentPosition> memoryMap;
+
 
     public SegmentsStorage(String path, KeyValueCodec codec) {
         this.codec = codec;
         this.segmentManager = new SegmentManagerV1(Path.of(path));
-        this.frozenMap = new ConcurrentHashMap<>();
-        this.memoryMap = new ConcurrentHashMap<>();
         init();
     }
 
-    public SegmentsStorage(String path, KeyValueCodec codec, SegmentManager segmentManager) {
+    public SegmentsStorage(KeyValueCodec codec, SegmentManager segmentManager) {
         this.codec = codec;
         this.segmentManager = segmentManager;
-        this.frozenMap = new ConcurrentHashMap<>();
-        this.memoryMap = new ConcurrentHashMap<>();
         init();
     }
 
