@@ -10,35 +10,37 @@ import com.belokur.jldbase.impl.reader.DataReaderV1;
 import com.belokur.jldbase.impl.writer.DataWriterV1;
 import com.belokur.jldbase.index.SegmentKeyIndexManager;
 import com.belokur.jldbase.index.SegmentKeyIndexManagerImplV1;
+import com.belokur.jldbase.segment.SegmentManagerV1;
 import com.belokur.jldbase.task.CompressTask;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class LogStorageV5 extends SegmentsStorage implements KeyValueStorage {
     private static final Logger log = LoggerFactory.getLogger(LogStorageV5.class);
-    private static final int DEFAULT_SEGMENT_SIZE = 1024;
+
     private final ExecutorService mergeExecutor = Executors.newSingleThreadExecutor();
     private final SegmentKeyIndexManager indexManager;
 
     public LogStorageV5(String path) {
-        this(path, DEFAULT_SEGMENT_SIZE);
+        super(path, new KeyValueBinaryCodec());
+        this.indexManager = new SegmentKeyIndexManagerImplV1();
+        Runtime.getRuntime().addShutdownHook(new Thread(mergeExecutor::shutdown));
     }
 
     public LogStorageV5(String path, int segmentSize) {
-        super(path, new KeyValueBinaryCodec());
-        this.maxSegmentSize = segmentSize;
+        super(new KeyValueBinaryCodec(), new SegmentManagerV1(Path.of(path), segmentSize));
         this.indexManager = new SegmentKeyIndexManagerImplV1();
         Runtime.getRuntime().addShutdownHook(new Thread(mergeExecutor::shutdown));
     }
 
     public LogStorageV5(String path, int segmentSize, SegmentManager segmentManager) {
         super(new KeyValueBinaryCodec(), segmentManager);
-        this.maxSegmentSize = segmentSize;
         this.indexManager = new SegmentKeyIndexManagerImplV1();
         Runtime.getRuntime().addShutdownHook(new Thread(mergeExecutor::shutdown));
     }
@@ -77,6 +79,7 @@ public class LogStorageV5 extends SegmentsStorage implements KeyValueStorage {
     public void set(String key, String value) {
         var content = codec.toRecord(key, value);
         var current = this.segmentManager.getCurrent();
+        var maxSegmentSize = this.segmentManager.getMaxSegmentSize();
         try {
             long currentSize = Files.size(current.getPath());
 

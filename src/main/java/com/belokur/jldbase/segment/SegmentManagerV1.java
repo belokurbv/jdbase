@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.ReentrantLock;
 
 public class SegmentManagerV1 implements SegmentManager {
     public static final String EXTENSION = ".dat";
@@ -20,17 +21,25 @@ public class SegmentManagerV1 implements SegmentManager {
     public static final String PREFIX = "segment";
     public static final String SEGMENT_TEMPLATE = "%s-%08d%s";
     private static final Logger log = LoggerFactory.getLogger(SegmentManagerV1.class);
+    private final ReentrantLock lock = new ReentrantLock();
     private final AtomicInteger maxSegmentId;
     private final List<Segment> segments;
     private final Path root;
+    private final int segmentSize;
     private volatile Segment current;
 
+
     public SegmentManagerV1(Path root) {
+        this(root, DEFAULT_SEGMENT_SIZE);
+    }
+
+    public SegmentManagerV1(Path root, int segmentSize) {
         this.root = root;
         this.segments = new CopyOnWriteArrayList<>();
         this.maxSegmentId = new AtomicInteger();
-        initSegments(root);
         this.current = addSegment();
+        this.segmentSize = segmentSize;
+        initSegments(root);
     }
 
     public static int getSegmentId(Path segment) {
@@ -102,27 +111,36 @@ public class SegmentManagerV1 implements SegmentManager {
 
     @Override
     public void persist(Segment tempSegment) {
-        var id = maxSegmentId.incrementAndGet();
-        var newSegmentName = String.format(SEGMENT_TEMPLATE, PREFIX, id, EXTENSION);
-        var newSegmentPath = root.resolve(newSegmentName);
+        lock.lock();
         try {
-            Files.move(tempSegment.getPath(), newSegmentPath, StandardCopyOption.ATOMIC_MOVE);
-            var segment = new Segment(id, newSegmentPath, tempSegment.getKeys());
-            segments.add(segment);
-        } catch (IOException e) {
-            log.error("Failed to persist segment", e);
-            throw new RuntimeException("Failed to persist segment", e);
+
+
+            var id = maxSegmentId.incrementAndGet();
+            var newSegmentName = String.format(SEGMENT_TEMPLATE, PREFIX, id, EXTENSION);
+            var newSegmentPath = root.resolve(newSegmentName);
+            try {
+                Files.move(tempSegment.getPath(), newSegmentPath, StandardCopyOption.ATOMIC_MOVE);
+                var segment = new Segment(id, newSegmentPath, tempSegment.getKeys());
+                segments.add(segment);
+            } catch (IOException e) {
+                log.error("Failed to persist segment", e);
+                throw new RuntimeException("Failed to persist segment", e);
+            }
+        } finally {
+            lock.unlock();
         }
     }
 
     @Override
     public void deleteSegment(Segment segment) {
+        lock.lock();
         try {
             Files.deleteIfExists(segment.getPath());
         } catch (IOException e) {
             throw new RuntimeException(e);
         } finally {
             segments.remove(segment);
+            lock.unlock();
         }
     }
 
@@ -140,5 +158,10 @@ public class SegmentManagerV1 implements SegmentManager {
     public void setCurrent(Segment segment) {
         Objects.requireNonNull(segment);
         this.current = segment;
+    }
+
+    @Override
+    public int getMaxSegmentSize() {
+        return segmentSize;
     }
 }

@@ -4,7 +4,6 @@ import com.belokur.jldbase.api.KeyValueCodec;
 import com.belokur.jldbase.api.Segment;
 import com.belokur.jldbase.api.SegmentManager;
 import com.belokur.jldbase.api.SegmentPosition;
-import com.belokur.jldbase.impl.codec.KeyValueBinaryCodec;
 import com.belokur.jldbase.impl.reader.DataReaderV1;
 import com.belokur.jldbase.impl.writer.DataWriterV1;
 import com.belokur.jldbase.index.SegmentKeyIndexManager;
@@ -41,10 +40,10 @@ public class CompressTask implements Runnable {
 
         log.info("Starting merge for segment {}", segment.getId());
 
-        Map<String, SegmentPosition> frozenSnapshot = Map.copyOf(indexManager.getMemoryMap());
+        var frozenSnapshot = Map.copyOf(indexManager.getMemoryMap());
         indexManager.resetSnapshot();
 
-        Map<String, SegmentPosition> newMap = mergeSegment(segment, frozenSnapshot);
+        var newMap = mergeSegment(segment, frozenSnapshot);
         indexManager.mergeSnapshot(newMap);
 
         log.info("Merge completed for segment {}", segment.getId());

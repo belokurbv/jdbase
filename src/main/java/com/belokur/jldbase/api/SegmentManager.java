@@ -4,6 +4,8 @@ import java.nio.file.Path;
 import java.util.List;
 
 public interface SegmentManager {
+    int DEFAULT_SEGMENT_SIZE = 1024;
+
     void initSegments(Path root);
 
     Segment addSegment();
@@ -21,4 +23,6 @@ public interface SegmentManager {
     Segment getCurrent();
 
     void setCurrent(Segment segment);
+
+    int getMaxSegmentSize();
 }

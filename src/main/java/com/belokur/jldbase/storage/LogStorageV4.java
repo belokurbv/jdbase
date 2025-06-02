@@ -23,22 +23,20 @@ import java.util.concurrent.Executors;
 
 public class LogStorageV4 extends SegmentsStorage implements KeyValueStorage {
     private static final Logger log = LoggerFactory.getLogger(LogStorageV4.class);
-    private static final int DEFAULT_SEGMENT_SIZE = 1024;
     private final ExecutorService mergeExecutor = Executors.newSingleThreadExecutor();
     Map<String, SegmentPosition> frozenMap;
     Map<String, SegmentPosition> memoryMap;
 
     public LogStorageV4(String path) {
-        this(path, DEFAULT_SEGMENT_SIZE);
+        this(new SegmentManagerV1(Path.of(path), SegmentManager.DEFAULT_SEGMENT_SIZE));
     }
 
     public LogStorageV4(String path, int segmentSize) {
-        this(segmentSize, new SegmentManagerV1(Path.of(path)));
+        this(new SegmentManagerV1(Path.of(path), segmentSize));
     }
 
-    public LogStorageV4(int segmentSize, SegmentManager segmentManager) {
+    public LogStorageV4(SegmentManager segmentManager) {
         super(new KeyValueBinaryCodec(), segmentManager);
-        this.maxSegmentSize = segmentSize;
         Runtime.getRuntime().addShutdownHook(new Thread(mergeExecutor::shutdown));
     }
 
@@ -160,6 +158,7 @@ public class LogStorageV4 extends SegmentsStorage implements KeyValueStorage {
     public void set(String key, String value) {
         byte[] content = codec.toRecord(key, value);
         var current = this.segmentManager.getCurrent();
+        var maxSegmentSize = this.segmentManager.getMaxSegmentSize();
         try {
             long currentSize = Files.size(current.getPath());
 

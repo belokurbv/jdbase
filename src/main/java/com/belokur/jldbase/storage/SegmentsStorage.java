@@ -12,8 +12,6 @@ public abstract class SegmentsStorage implements KeyValueStorage {
     ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock();
     protected KeyValueCodec codec;
     protected SegmentManager segmentManager;
-    int maxSegmentSize = 100;
-
 
     public SegmentsStorage(String path, KeyValueCodec codec) {
         this.codec = codec;
