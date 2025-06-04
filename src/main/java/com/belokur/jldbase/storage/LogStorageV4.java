@@ -62,6 +62,7 @@ public class LogStorageV4 extends SegmentsStorage implements KeyValueStorage {
                 segment.addKey((int) recordStart);
                 var valueSize = reader.readSize();
                 reader.readValue(valueSize);
+                log.info("Key {} loaded to segment {}", key, segment);
             }
         } catch (Exception e) {
             throw new RuntimeException("Failed to load keys from segment: " + segment.getPath(), e);
@@ -69,41 +70,40 @@ public class LogStorageV4 extends SegmentsStorage implements KeyValueStorage {
     }
 
     public void merge(Segment segment) {
-        if (!segment.isDirty()) {
-            return;
-        }
+        if (!segment.isDirty()) return;
 
         log.info("Starting merge");
 
-        rwLock.writeLock().lock();
+        rwLock.readLock().lock();
         try {
-            this.frozenMap = new ConcurrentHashMap<>(this.memoryMap);
-            this.memoryMap = new ConcurrentHashMap<>();
+            frozenMap = new ConcurrentHashMap<>(memoryMap);
         } finally {
-            rwLock.writeLock().unlock();
+            rwLock.readLock().unlock();
         }
 
-        var newMap = new HashMap<String, SegmentPosition>();
+        var tempMap = new HashMap<String, SegmentPosition>();
+        var tempSegment = segmentManager.createTemporarySegment();
 
-        var tempSegment = this.segmentManager.createTemporarySegment();
-        log.info("Creating temporary segment: {}", tempSegment.getId());
         try (var reader = new DataReaderV1(segment.getPath());
              var writer = new DataWriterV1(tempSegment.getPath())) {
 
             for (int keyIndex = segment.getKeys().nextSetBit(0);
                  keyIndex >= 0;
-                 keyIndex = segment.getKeys().nextSetBit(keyIndex + 1)
-            ) {
+                 keyIndex = segment.getKeys().nextSetBit(keyIndex + 1)) {
+
                 var key = reader.readValue(reader.readSize());
                 var value = reader.readValue(reader.readSize());
 
-                log.info("Processing key {} in segment {} on position {}", key, segment.getId(), keyIndex);
+                if (memoryMap.containsKey(key)) {
+                    log.info("Skipping key {} because it was updated during merge", key);
+                    continue;
+                }
 
                 if (isKeyStillInSegment(segment, key)) {
                     var record = codec.toRecord(key, value);
                     var position = writer.size();
                     writer.append(record);
-                    newMap.put(key, new SegmentPosition(tempSegment, (int) position));
+                    tempMap.put(key, new SegmentPosition(tempSegment, (int) position));
                     tempSegment.addKey((int) position);
                 }
             }
@@ -114,15 +114,21 @@ public class LogStorageV4 extends SegmentsStorage implements KeyValueStorage {
 
         rwLock.writeLock().lock();
         try {
-            retainOldKeys(newMap);
-            memoryMap.putAll(newMap);
-            if (!newMap.isEmpty()) {
-                segmentManager.persist(tempSegment);
-                segmentManager.deleteSegment(segment);
-            } else {
-                log.info("No keys were merged, deleting segment {}", segment.getId());
+            if (!tempMap.isEmpty()) {
+                var finalSegment = segmentManager.persist(tempSegment);
+                var newMap = new HashMap<String, SegmentPosition>();
+                for (var entry : tempMap.entrySet()) {
+                    var pos = entry.getValue();
+                    newMap.put(entry.getKey(), new SegmentPosition(finalSegment, pos.getPosition()));
+                }
+                retainOldKeys(newMap);
+                memoryMap.putAll(newMap);
+            } else{
+                log.info("Segment {} is old, removing", segment.getId());
             }
+            segmentManager.deleteSegment(segment);
         } finally {
+            frozenMap = null;
             rwLock.writeLock().unlock();
             cleanupAfterMerge(tempSegment);
         }
@@ -137,9 +143,8 @@ public class LogStorageV4 extends SegmentsStorage implements KeyValueStorage {
      */
     private boolean isKeyStillInSegment(Segment segment, String key) {
         var position = frozenMap.get(key);
-        return position != null && position.segment().equals(segment);
+        return position != null && position.getSegment().equals(segment);
     }
-
 
     private void retainOldKeys(Map<String, SegmentPosition> newMap) {
         for (var entry : frozenMap.entrySet()) {
@@ -159,6 +164,7 @@ public class LogStorageV4 extends SegmentsStorage implements KeyValueStorage {
         byte[] content = codec.toRecord(key, value);
         var current = this.segmentManager.getCurrent();
         var maxSegmentSize = this.segmentManager.getMaxSegmentSize();
+        log.info("Current segment {} {} {}", current, segmentManager.getAllSegments(), memoryMap);
         try {
             long currentSize = Files.size(current.getPath());
 
@@ -169,6 +175,7 @@ public class LogStorageV4 extends SegmentsStorage implements KeyValueStorage {
                 this.segmentManager.setCurrent(newSegment);
                 current = newSegment;
             }
+            log.info("Current segment: {}", current);
 
             set(current, key, content);
         } catch (IOException e) {
@@ -185,7 +192,7 @@ public class LogStorageV4 extends SegmentsStorage implements KeyValueStorage {
             var previousSegmentPosition = memoryMap.get(key);
 
             if (previousSegmentPosition != null) {
-                segment.clearKey(previousSegmentPosition.position());
+                segment.clearKey(previousSegmentPosition.getPosition());
                 segment.dirty();
             }
 
@@ -200,10 +207,14 @@ public class LogStorageV4 extends SegmentsStorage implements KeyValueStorage {
     public String get(String key) {
         rwLock.readLock().lock();
         try {
+            log.info(segmentManager.getAllSegments().toString());
+            log.info(segmentManager.getCurrent().toString());
+            log.info(getSegmentPosition(key).toString());
+
             var position = getSegmentPosition(key);
 
-            try (var reader = new DataReaderV1(position.segment().getPath())) {
-                reader.setPosition(position.position());
+            try (var reader = new DataReaderV1(position.getSegment().getPath())) {
+                reader.setPosition(position.getPosition());
                 validateKeyInStorage(key, reader);
 
                 int valueSize = reader.readSize();
@@ -221,6 +232,7 @@ public class LogStorageV4 extends SegmentsStorage implements KeyValueStorage {
         rwLock.readLock().lock();
         try {
             var position = memoryMap.get(key);
+            log.info(memoryMap.toString());
             if (position == null) {
                 position = frozenMap.get(key);
             }

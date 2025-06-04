@@ -14,7 +14,7 @@ public interface SegmentManager {
 
     void deleteTemporarySegment(Segment segment);
 
-    void persist(Segment tempSegment);
+    Segment persist(Segment tempSegment);
 
     void deleteSegment(Segment segment);
 
@@ -25,4 +25,12 @@ public interface SegmentManager {
     void setCurrent(Segment segment);
 
     int getMaxSegmentSize();
+
+    boolean isCompactable();
+
+    List<Segment> getOldSegments();
+
+    default void addSegmentListener(SegmentListener listener) {};
+
+    default void notify(Segment segment) {};
 }

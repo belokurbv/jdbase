@@ -1,20 +1,27 @@
 package com.belokur.jldbase.index;
 
 import com.belokur.jldbase.api.SegmentPosition;
+import com.belokur.jldbase.api.SegmentPositionVersioned;
 
 import java.util.Map;
 
 public interface SegmentKeyIndexManager {
 
-    SegmentPosition get(String key);
+    SegmentPositionVersioned get(String key);
 
-    void put(String key, SegmentPosition pos);
+    void put(String key, SegmentPositionVersioned pos);
 
-    void resetSnapshot();
+  //  void resetSnapshot();
 
-    void mergeSnapshot(Map<String, SegmentPosition> newMap);
+   //  void mergeSnapshot(Map<String, SegmentPositionVersioned> newMap);
 
-    Map<String, SegmentPosition> getSnapshot();
+//     Map<String, SegmentPositionVersioned> getSnapshot();
 
-    Map<String, SegmentPosition> getMemoryMap();
+    Map<String, SegmentPositionVersioned> getMemoryMap();
+
+    Long incrementAndGetVersion();
+
+    Long getVersion();
+
+    void putAll(Map<String, SegmentPositionVersioned> map);
 }

@@ -9,7 +9,7 @@ import java.nio.file.Path;
 public class LogStorageV4Test extends AbstractSegmentsStorageTest {
     @Override
     protected KeyValueStorage createStorage(Path path) {
-        this.segmentManager = new SegmentManagerV1(path);
-        return new LogStorageV4(50, segmentManager);
+        this.segmentManager = new SegmentManagerV1(path, 50);
+        return new LogStorageV4(segmentManager);
     }
 }

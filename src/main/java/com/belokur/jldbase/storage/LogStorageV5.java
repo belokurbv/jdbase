@@ -3,49 +3,45 @@ package com.belokur.jldbase.storage;
 import com.belokur.jldbase.api.KeyValueStorage;
 import com.belokur.jldbase.api.Segment;
 import com.belokur.jldbase.api.SegmentManager;
-import com.belokur.jldbase.api.SegmentPosition;
+import com.belokur.jldbase.api.SegmentPositionVersioned;
 import com.belokur.jldbase.exception.KeyException;
 import com.belokur.jldbase.impl.codec.KeyValueBinaryCodec;
+import com.belokur.jldbase.impl.listener.CompactSegmentListener;
+import com.belokur.jldbase.impl.listener.MergeSegmentListener;
 import com.belokur.jldbase.impl.reader.DataReaderV1;
 import com.belokur.jldbase.impl.writer.DataWriterV1;
 import com.belokur.jldbase.index.SegmentKeyIndexManager;
 import com.belokur.jldbase.index.SegmentKeyIndexManagerImplV1;
 import com.belokur.jldbase.segment.SegmentManagerV1;
-import com.belokur.jldbase.task.CompressTask;
+import com.belokur.jldbase.segment.SegmentManagerV2;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 public class LogStorageV5 extends SegmentsStorage implements KeyValueStorage {
     private static final Logger log = LoggerFactory.getLogger(LogStorageV5.class);
 
-    private final ExecutorService mergeExecutor = Executors.newSingleThreadExecutor();
-    private final SegmentKeyIndexManager indexManager;
+    private SegmentKeyIndexManager indexManager;
 
     public LogStorageV5(String path) {
-        super(path, new KeyValueBinaryCodec());
-        this.indexManager = new SegmentKeyIndexManagerImplV1();
-        Runtime.getRuntime().addShutdownHook(new Thread(mergeExecutor::shutdown));
+        this(new SegmentManagerV2(Path.of(path), SegmentManager.DEFAULT_SEGMENT_SIZE));
     }
 
     public LogStorageV5(String path, int segmentSize) {
-        super(new KeyValueBinaryCodec(), new SegmentManagerV1(Path.of(path), segmentSize));
-        this.indexManager = new SegmentKeyIndexManagerImplV1();
-        Runtime.getRuntime().addShutdownHook(new Thread(mergeExecutor::shutdown));
+        this(new SegmentManagerV2(Path.of(path), segmentSize));
     }
 
-    public LogStorageV5(String path, int segmentSize, SegmentManager segmentManager) {
+    public LogStorageV5(SegmentManager segmentManager) {
         super(new KeyValueBinaryCodec(), segmentManager);
-        this.indexManager = new SegmentKeyIndexManagerImplV1();
-        Runtime.getRuntime().addShutdownHook(new Thread(mergeExecutor::shutdown));
+        segmentManager.addSegmentListener(new CompactSegmentListener(segmentManager, codec, indexManager));
+        segmentManager.addSegmentListener(new MergeSegmentListener(segmentManager, codec, indexManager));
     }
 
     public void init() {
+        this.indexManager = new SegmentKeyIndexManagerImplV1();
         rwLock.writeLock().lock();
         try {
             for (Segment segment : this.segmentManager.getAllSegments()) {
@@ -61,7 +57,7 @@ public class LogStorageV5 extends SegmentsStorage implements KeyValueStorage {
             while (reader.position() < reader.size()) {
                 var recordStart = reader.position();
                 var key = reader.readValue(reader.readSize());
-                indexManager.put(key, new SegmentPosition(segment, (int) recordStart));
+                indexManager.put(key, new SegmentPositionVersioned(segment, (int) recordStart, 0L));
                 segment.addKey((int) recordStart);
                 var valueSize = reader.readSize();
                 reader.readValue(valueSize);
@@ -69,10 +65,6 @@ public class LogStorageV5 extends SegmentsStorage implements KeyValueStorage {
         } catch (Exception e) {
             throw new RuntimeException("Failed to load keys from segment: " + segment.getPath(), e);
         }
-    }
-
-    public void merge(Segment segment) {
-        mergeExecutor.submit(new CompressTask(segment, segmentManager, indexManager, codec));
     }
 
     @Override
@@ -84,8 +76,8 @@ public class LogStorageV5 extends SegmentsStorage implements KeyValueStorage {
             long currentSize = Files.size(current.getPath());
 
             if (currentSize + content.length > maxSegmentSize) {
-                var toMerge = current;
-                this.merge(toMerge);
+                log.info("Segment {} is full", current.getId());
+                segmentManager.notify(current);
                 var newSegment = segmentManager.addSegment();
                 this.segmentManager.setCurrent(newSegment);
                 current = newSegment;
@@ -102,15 +94,15 @@ public class LogStorageV5 extends SegmentsStorage implements KeyValueStorage {
             var currentSize = writer.size();
             writer.setPosition(currentSize);
             writer.append(content);
-
             var previousSegmentPosition = indexManager.get(key);
 
             if (previousSegmentPosition != null) {
-                segment.clearKey(previousSegmentPosition.position());
+                segment.clearKey(previousSegmentPosition.getPosition());
                 segment.dirty();
             }
 
-            indexManager.put(key, new SegmentPosition(segment, (int) currentSize));
+            indexManager.put(key, new SegmentPositionVersioned(segment, (int) currentSize,
+                                                               indexManager.incrementAndGetVersion()));
             segment.addKey((int) currentSize);
         }
     }
@@ -121,8 +113,12 @@ public class LogStorageV5 extends SegmentsStorage implements KeyValueStorage {
         try {
             var position = indexManager.get(key);
 
-            try (var reader = new DataReaderV1(position.segment().getPath())) {
-                reader.setPosition(position.position());
+            if (position == null) {
+                throw new KeyException("Key not found: " + key);
+            }
+
+            try (var reader = new DataReaderV1(position.getSegment().getPath())) {
+                reader.setPosition(position.getPosition());
                 validateKeyInStorage(key, reader);
 
                 int valueSize = reader.readSize();

@@ -1,6 +1,7 @@
 package com.belokur.jldbase.segment;
 
 import com.belokur.jldbase.api.Segment;
+import com.belokur.jldbase.api.SegmentListener;
 import com.belokur.jldbase.api.SegmentManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -16,8 +17,8 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
 
-public class SegmentManagerV1 implements SegmentManager {
-    private static final Logger log = LoggerFactory.getLogger(SegmentManagerV1.class);
+public class SegmentManagerV2 implements SegmentManager {
+    private static final Logger log = LoggerFactory.getLogger(SegmentManagerV2.class);
     public static final int MAX_SEGMENT_COUNT = 5;
     public static final int OLD_SEGMENTS_COUNT = 2;
     public static final String EXTENSION = ".dat";
@@ -25,21 +26,23 @@ public class SegmentManagerV1 implements SegmentManager {
     public static final String PREFIX = "segment";
     public static final String SEGMENT_TEMPLATE = "%s-%08d%s";
     private final ReentrantLock lock = new ReentrantLock();
+    private final List<SegmentListener> listeners ;
     private final AtomicInteger maxSegmentId;
     private final List<Segment> segments;
     private final Path root;
     private final int segmentSize;
     private volatile Segment current;
 
-    public SegmentManagerV1(Path root) {
+    public SegmentManagerV2(Path root) {
         this(root, DEFAULT_SEGMENT_SIZE);
     }
 
-    public SegmentManagerV1(Path root, int segmentSize) {
+    public SegmentManagerV2(Path root, int segmentSize) {
         this.root = root;
         this.segments = new CopyOnWriteArrayList<>();
         this.maxSegmentId = new AtomicInteger();
         this.segmentSize = segmentSize;
+        this.listeners = new CopyOnWriteArrayList<>();
         initSegments(root);
     }
 
@@ -143,7 +146,6 @@ public class SegmentManagerV1 implements SegmentManager {
     public void deleteSegment(Segment segment) {
         lock.lock();
         try {
-            this.segments.remove(segment);
             Files.deleteIfExists(segment.getPath());
         } catch (IOException e) {
             throw new RuntimeException(e);
@@ -188,5 +190,18 @@ public class SegmentManagerV1 implements SegmentManager {
                     .toList();
         }
         throw new RuntimeException("Segment count does not exceed max segment count size " + MAX_SEGMENT_COUNT);
+    }
+
+    @Override
+    public void addSegmentListener(SegmentListener listener) {
+        listeners.add(listener);
+    }
+
+    @Override
+    public void notify(Segment segment) {
+        for (SegmentListener listener : listeners) {
+            log.info("Notifying listener {}", listener.getClass().getSimpleName());
+            listener.onSegmentFull(segment);
+        }
     }
 }

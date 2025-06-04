@@ -26,13 +26,12 @@ public final class Segment {
 
     @Override
     public boolean equals(Object obj) {
-        if (obj == this) return true;
-        if (obj == null || obj.getClass() != this.getClass()) return false;
-        var that = (Segment) obj;
-        return this.id == that.id &&
-                Objects.equals(this.path, that.path) &&
-                Objects.equals(this.keys, that.keys);
+        if (this == obj) return true;
+        if (obj == null || getClass() != obj.getClass()) return false;
+        Segment that = (Segment) obj;
+        return id == that.id;
     }
+
 
     @Override
     public int hashCode() {

@@ -45,18 +45,16 @@ public abstract class AbstractSegmentsStorageTest extends AbstractKeyValueStorag
         assertEquals(21, secondPositionInSegment);
     }
 
-
-
     @Test
     void shouldMergeSegment_WhenKeysAreDuplicated() throws InterruptedException {
         // Initialize duplicate data
         storage.set("foo", "1234567890"); // Duplicate entry 1
         storage.set("foo", "1234567891"); // Duplicate entry 2
         storage.set("foo", "1234567892"); // Duplicate entry 3
-        TimeUnit.SECONDS.sleep(5); // This ensures the merge thread finishes execution
+        TimeUnit.SECONDS.sleep(2); // This ensures the merge thread finishes execution
 
         // Check that only one segment remains (i.e., merge happened)
-        assertEquals(2, segmentManager.getAllSegments().size(),
+        assertEquals(1, segmentManager.getAllSegments().size(),
                      "Post-merge, only one segment should remain");
 
         // Validate that the latest value of "foo" is retained
@@ -64,6 +62,4 @@ public abstract class AbstractSegmentsStorageTest extends AbstractKeyValueStorag
                      "The latest value should be retained after the merge");
 
     }
-
-
 }

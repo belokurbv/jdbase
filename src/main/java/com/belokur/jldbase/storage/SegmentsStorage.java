@@ -25,8 +25,6 @@ public abstract class SegmentsStorage implements KeyValueStorage {
         init();
     }
 
-    public abstract void merge(Segment segment);
-
     public SegmentManager getSegmentManager() {
         return segmentManager;
     }

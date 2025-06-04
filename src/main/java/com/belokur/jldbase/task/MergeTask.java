@@ -3,7 +3,7 @@ package com.belokur.jldbase.task;
 import com.belokur.jldbase.api.KeyValueCodec;
 import com.belokur.jldbase.api.Segment;
 import com.belokur.jldbase.api.SegmentManager;
-import com.belokur.jldbase.api.SegmentPosition;
+import com.belokur.jldbase.api.SegmentPositionVersioned;
 import com.belokur.jldbase.impl.reader.DataReaderV1;
 import com.belokur.jldbase.impl.writer.DataWriterV1;
 import com.belokur.jldbase.index.SegmentKeyIndexManager;
@@ -21,6 +21,7 @@ public class MergeTask implements Runnable {
     private final KeyValueCodec codec;
     private final int maxSegmentSize;
     private final Deque<Segment> tempSegments;
+    private final long snapshotVersion;
 
     public MergeTask(List<Segment> segments,
                      SegmentManager segmentManager,
@@ -33,14 +34,12 @@ public class MergeTask implements Runnable {
         this.codec = codec;
         this.maxSegmentSize = maxSegmentSize;
         this.tempSegments = new ArrayDeque<>();
+        this.snapshotVersion = indexManager.getVersion();
     }
 
     @Override
     public void run() {
-        var frozenSnapshot = Map.copyOf(indexManager.getMemoryMap());
-        indexManager.resetSnapshot();
-        var newMap = mergeSegments(frozenSnapshot);
-        indexManager.mergeSnapshot(newMap);
+        mergeSegments();
     }
 
     private DataWriterV1 createWriter() throws IOException {
@@ -50,17 +49,22 @@ public class MergeTask implements Runnable {
         return new DataWriterV1(tempSegment.getPath());
     }
 
-    private Map<String, SegmentPosition> mergeSegments(Map<String, SegmentPosition> frozenSnapshot) {
-        Map<String, SegmentPosition> newMap = new HashMap<>();
-
+    private void mergeSegments() {
+        log.info("Merging segments: {}", segments.size());
+        Map<String, SegmentPositionVersioned> tempMap = new HashMap<>();
+        var dirtySegments = new LinkedList<Segment>();
         for (var segment : segments) {
             if (!segment.isDirty()) {
                 log.info("Segment {} is clean. Skipping merge.", segment.getId());
                 continue;
             }
 
+            dirtySegments.add(segment);
+
             try (var reader = new DataReaderV1(segment.getPath())) {
-                var writer = createWriter();
+                DataWriterV1 writer = createWriter();
+                Map<String, SegmentPositionVersioned> segmentMap = new HashMap<>();
+                Segment currentTempSegment = tempSegments.peekLast();
 
                 for (int keyIndex = segment.getKeys().nextSetBit(0);
                      keyIndex >= 0;
@@ -69,44 +73,58 @@ public class MergeTask implements Runnable {
                     var key = reader.readValue(reader.readSize());
                     var value = reader.readValue(reader.readSize());
 
-                    var pos = frozenSnapshot.get(key);
-                    if (pos != null && pos.segment().equals(segment)) {
+                    var pos = indexManager.get(key);
+
+                    if (pos != null && pos.getVersion() > this.snapshotVersion) {
+                        log.info("Skipping key {} because it was updated after snapshot", key);
+                        continue;
+                    }
+
+                    if (pos != null && pos.getSegment().equals(segment)) {
                         var record = codec.toRecord(key, value);
 
-                        if (writer.size() + record.length > maxSegmentSize) {
+                        if (writer.size() + record.length > this.maxSegmentSize) {
                             writer.close();
                             writer = createWriter();
+                            currentTempSegment = tempSegments.peekLast();
+                            segmentMap = new HashMap<>();
                         }
 
                         var position = writer.size();
-
                         writer.append(record);
 
-                        var tempSegment = this.tempSegments.peekLast();
-                        newMap.put(key, new SegmentPosition(tempSegment, (int) position));
-                        tempSegment.addKey((int) position);
+                        segmentMap.put(key, new SegmentPositionVersioned(currentTempSegment, (int) position, pos.getVersion()));
+                        currentTempSegment.addKey((int) position);
                     }
                 }
 
                 writer.close();
+
+                // persist and update index
+                if (!segmentMap.isEmpty()) {
+                    var finalSegment = segmentManager.persist(currentTempSegment);
+                    Map<String, SegmentPositionVersioned> newMap = new HashMap<>();
+                    for (var entry : segmentMap.entrySet()) {
+                        var pos = entry.getValue();
+                        newMap.put(entry.getKey(),
+                                   new SegmentPositionVersioned(finalSegment, pos.getPosition(), pos.getVersion()));
+                    }
+                    indexManager.putAll(newMap);
+                }
+
+                segmentManager.deleteTemporarySegment(currentTempSegment);
+
             } catch (IOException e) {
                 log.error("Failed to merge segment: {}", segment.getPath(), e);
                 throw new RuntimeException("Failed to merge segment: " + segment.getPath(), e);
             }
         }
 
-
-        if (!newMap.isEmpty()) {
-            for (var tempSegment : tempSegments) {
-                segmentManager.persist(tempSegment);
-                segmentManager.deleteSegment(tempSegment);
-            }
-        } else {
-            for (var tempSegment : tempSegments) {
-                segmentManager.deleteTemporarySegment(tempSegment);
-            }
+        for (var segment : dirtySegments) {
+            segmentManager.deleteSegment(segment);
         }
 
-        return newMap;
+        log.info("after merge {}, ", indexManager.getMemoryMap());
+        log.info("after merge {}, ", segmentManager.getAllSegments());
     }
 }
